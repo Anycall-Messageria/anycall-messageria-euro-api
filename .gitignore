@@ -1,0 +1,9 @@
+node_modules
+.env
+.env.local
+/.vscode
+sessions/
+uploads/
+uploads-messages/
+midias/
+balances/
