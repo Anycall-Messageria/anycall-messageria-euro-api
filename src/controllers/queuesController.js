@@ -24,8 +24,21 @@ import { updateSessionCount, restartApplication } from '../session/index.js'
 import { findSessionsCount, findSessionsStatus } from '../service/sessions/find.js'
 import { Op, QueryTypes } from 'sequelize'
 import EventEmitter from 'events'
+import { 
+  CAMPAIGN_STATUS, 
+  QUEUE_STATUS, 
+  SCHEDULE_STATUS, 
+  MESSAGE_TYPE, 
+  SESSION_VERIFY, 
+  TIMER_ALTER,
+  isActiveStatus,
+  isPausedStatus,
+  isFinishedStatus
+} from '../constants/status.js'
+import getIntervalManager from '../utils/intervalManager.js'
 
 const eventEmitter = new EventEmitter();
+const intervalManager = getIntervalManager();
 
 var meuInterval
 let countSuccess = 0
@@ -532,7 +545,7 @@ async function restart(identificador){
       passSend = contagem
     }
   
-    const filas = await Queue.findOne({ where: { "identificador": identificador, 'status': 0 } })
+    const filas = await Queue.findOne({ where: { "identificador": identificador, 'status': QUEUE_STATUS.ACTIVE } })
     const identificador1 = filas.identificador
     const _id = filas.id
     const mensageminicial = filas.mensageminicial
@@ -551,24 +564,24 @@ async function restart(identificador){
           await Campaing.update({ active: 2 }, { where: { "identificador": identificador } }, { multi: true })
           return
         }
-        if (cancel.status == 1) {
+        if (cancel.status == QUEUE_STATUS.PAUSED) {
           console.log('Pausou', id)
           clearInterval(meuInterval);
-          clearInterval(getTime);
+          intervalManager.clear(`${identificador}-getTime`);
           await sendQeues(cancel.credor, cancel.nomeFila, 1, cancel.identificador)
           return
-        } else if (cancel.status == 2) {
+        } else if (cancel.status == QUEUE_STATUS.FINISHED) {
           console.log('Cancelou', id)
           clearInterval(meuInterval);
-          clearInterval(getTime);
+          intervalManager.clear(`${identificador}-getTime`);
           await sendQeues(cancel.credor, cancel.nomeFila, 2, cancel.identificador)
           return
         }
-        if (cancel.altertimers == 1) {
+        if (cancel.altertimers == TIMER_ALTER.ALTERED) {
           console.log('Alterou tempo e pausou', id)
           clearInterval(meuInterval);
-          clearInterval(getTime);
-          setTimeout(() => restart(id), 15000)
+          intervalManager.clear(`${identificador}-getTime`);
+          intervalManager.setTimeout(`${id}-restart`, () => restart(id), 15000)
         }
         if ((cancel.entregues + cancel.falhas) >= cancel.registros) {
           await sendQeues(cancel.credor, cancel.nomeFila, 2, cancel.identificador)
@@ -589,17 +602,17 @@ async function restart(identificador){
       return
     }
     function result() {
-      Campaing.findOne({ where: { 'identificador': identificador1, 'status': 0, 'schedule': 0 }, order: [['id', 'ASC']] })
+      Campaing.findOne({ where: { 'identificador': identificador1, 'status': CAMPAIGN_STATUS.ACTIVE, 'schedule': SCHEDULE_STATUS.INACTIVE }, order: [['id', 'ASC']] })
         .then(async function (res) {
           if (res) {
-            if (res.schedule == 0) {
-              if (res.active == 0) {
-                if (mensageminicial == 0) {
+            if (res.schedule == SCHEDULE_STATUS.INACTIVE) {
+              if (res.active == CAMPAIGN_STATUS.ACTIVE) {
+                if (mensageminicial == MESSAGE_TYPE.NORMAL) {
                   sending(identificador1, res.id)
-                } else if (mensageminicial == 1) {
+                } else if (mensageminicial == MESSAGE_TYPE.INITIAL) {
                   sendingInitial(identificador1, res.id)
                 }
-              } else if (res.active == 1) {
+              } else if (res.active == CAMPAIGN_STATUS.PAUSED) {
                 sendQeuesPause(identificador, 1)
                 return
               }
@@ -614,11 +627,11 @@ async function restart(identificador){
                   await Queue.update({ status: 1, schedule: 1 }, condition, options)
                   await Campaing.update({ active: 1 }, { where: { "identificador": identificador } }, { multi: true })
                 } else if (data.status == 4) {
-                  await sendQeues(data.credor, data.nomeFila, 4, data.identificador)
+                  await sendQeues(data.credor, data.nomeFila, QUEUE_STATUS.DELETED, data.identificador)
                   await Queue.update({ status: 4, schedule: 4 }, condition, options)
                   await Campaing.update({ active: 4, schedule: 4 }, { where: { "identificador": identificador } }, { multi: true })
                 } else if (data.status == 1 && data.schedule == 3) {
-                  await sendQeues(data.credor, data.nomeFila, 4, data.identificador)
+                  await sendQeues(data.credor, data.nomeFila, QUEUE_STATUS.DELETED, data.identificador)
                   await Queue.update({ status: 1, schelule: 3 }, condition, options)
                   await Campaing.update({ active: 1, schedule: 3 }, { where: { "identificador": identificador } }, { multi: true })
                 } else {
@@ -700,7 +713,7 @@ async function sendStartMessage(datas){
   console.log('Start', datas)
   try {
     const { identificador, verify, pause } = datas
-    if (verify == 1) {
+    if (verify == SESSION_VERIFY.INVALID) {
       sendQeuesPause(identificador)
       trocar(identificador, `sessão removida ou banida`, 404)
       return
@@ -763,24 +776,24 @@ async function sendStartMessage(datas){
           await Campaing.update({ active: 2 }, { where: { "identificador": identificador } }, { multi: true })
           return
         }
-        if (cancel.status == 1) {
+        if (cancel.status == QUEUE_STATUS.PAUSED) {
           console.log('Pausou', id)
           clearInterval(meuInterval);
-          clearInterval(getTime);
+          intervalManager.clear(`${identificador}-getTime`);
           await sendQeues(cancel.credor, cancel.nomeFila, 1, cancel.identificador)
           return
-        } else if (cancel.status == 2) {
+        } else if (cancel.status == QUEUE_STATUS.FINISHED) {
           console.log('Cancelou', id)
           clearInterval(meuInterval);
-          clearInterval(getTime);
+          intervalManager.clear(`${identificador}-getTime`);
           await sendQeues(cancel.credor, cancel.nomeFila, 2, cancel.identificador)
           return
         }
-        if (cancel.altertimers == 1) {
+        if (cancel.altertimers == TIMER_ALTER.ALTERED) {
           console.log('Alterou tempo e pausou', id)
           clearInterval(meuInterval);
-          clearInterval(getTime);
-          setTimeout(() => restart(id), 15000)
+          intervalManager.clear(`${identificador}-getTime`);
+          intervalManager.setTimeout(`${id}-restart`, () => restart(id), 15000)
         }
         if ((cancel.entregues + cancel.falhas) >= cancel.registros) {
           await sendQeues(cancel.credor, cancel.nomeFila, 2, cancel.identificador)
@@ -801,18 +814,18 @@ async function sendStartMessage(datas){
       return
     }
     function result() {
-      Campaing.findOne({ where: { 'identificador': identificador1, 'status': 0, 'schedule': 0 }, order: [['id', 'ASC']] })
+      Campaing.findOne({ where: { 'identificador': identificador1, 'status': CAMPAIGN_STATUS.ACTIVE, 'schedule': SCHEDULE_STATUS.INACTIVE }, order: [['id', 'ASC']] })
         .then(async function (res) {
           if (res) {
-            if (res.schedule == 0) {
-              if (res.active == 0) {
-                if (mensageminicial == 0) {
+            if (res.schedule == SCHEDULE_STATUS.INACTIVE) {
+              if (res.active == CAMPAIGN_STATUS.ACTIVE) {
+                if (mensageminicial == MESSAGE_TYPE.NORMAL) {
                   console.log('Chama o sending', mensageminicial)
                   sending(identificador1, res.id)
-                } else if (mensageminicial == 1) {
+                } else if (mensageminicial == MESSAGE_TYPE.INITIAL) {
                   sendingInitial(identificador1, res.id)
                 }
-              } else if (res.active == 1) {
+              } else if (res.active == CAMPAIGN_STATUS.PAUSED) {
                 sendQeuesPause(identificador, 1)
                 return
               }
@@ -827,11 +840,11 @@ async function sendStartMessage(datas){
                   await Queue.update({ status: 1, schedule: 1 }, condition, options)
                   await Campaing.update({ active: 1 }, { where: { "identificador": identificador } }, { multi: true })
                 } else if (data.status == 4) {
-                  await sendQeues(data.credor, data.nomeFila, 4, data.identificador)
+                  await sendQeues(data.credor, data.nomeFila, QUEUE_STATUS.DELETED, data.identificador)
                   await Queue.update({ status: 4, schedule: 4 }, condition, options)
                   await Campaing.update({ active: 4, schedule: 4 }, { where: { "identificador": identificador } }, { multi: true })
                 } else if (data.status == 1 && data.schedule == 3) {
-                  await sendQeues(data.credor, data.nomeFila, 4, data.identificador)
+                  await sendQeues(data.credor, data.nomeFila, QUEUE_STATUS.DELETED, data.identificador)
                   await Queue.update({ status: 1, schelule: 3 }, condition, options)
                   await Campaing.update({ active: 1, schedule: 3 }, { where: { "identificador": identificador } }, { multi: true })
                 } else {
@@ -1534,8 +1547,26 @@ async function sendMessageAfterFail(identificador, id_send){
      console.log('Envio após falha')
 }
 
-setInterval(() => logoutAppSession(2), 300000)
-setInterval(() => restartApplication(1), 3600000)
+// Funções auxiliares para gerenciamento de intervalos
+const setManagedInterval = (key, callback, delay) => {
+  return intervalManager.set(key, callback, delay)
+}
+
+const clearManagedInterval = (key) => {
+  return intervalManager.clear(key)
+}
+
+const setManagedTimeout = (key, callback, delay) => {
+  return intervalManager.setTimeout(key, callback, delay)
+}
+
+const clearManagedTimeout = (key) => {
+  return intervalManager.clearTimeout(key)
+}
+
+// Configurar intervalos globais gerenciados
+intervalManager.set('logout-session', () => logoutAppSession(2), 300000)
+intervalManager.set('restart-application', () => restartApplication(1), 3600000)
 
 export {
   list, uploadFile, listId, start, del, pauseCamp, msgStart, updateText, listRestart,
