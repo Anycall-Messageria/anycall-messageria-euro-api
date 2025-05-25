@@ -14,6 +14,7 @@ import cors from 'cors'
 import passports from '../src/auth/auth.js'
 import { monitoringSession  } from '../src/session/index.js'
 import { listRestart, listRestartPause , listStart, listMonitor} from '../src/controllers/queuesController.js'
+import { cleanupContextManager } from '../src/controllers/automateController.js'
 import PusherEvents from './lib/pusher-events.js'
 import Queue from './queues/queues.js'
 import { join } from 'path'
@@ -118,6 +119,10 @@ if (host) {
 
 const gracefulShutdown = () => {
     console.info('Encerrando servidor gracefuly...')
+    
+    // Cleanup do sistema de contextos
+    cleanupContextManager()
+    
     server.close(() => {
         console.info('Servidor HTTP fechado.')
         dbPost.close().then(() => 

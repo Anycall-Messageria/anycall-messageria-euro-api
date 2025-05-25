@@ -15,6 +15,151 @@ const socketClient = ioClient.io("https://euro17.anycall-messageria.com.br");
 
 var respo = response
 
+// Classe para gerenciar contexto de mensagens por sessão
+class MessageContext {
+    constructor(sessionId) {
+        this.sessionId = sessionId
+        this.sendMessageComp = ''
+        this.received = ''
+        this.receivedMidia = ''
+        this.lastActivity = Date.now()
+    }
+    
+    // Atualizar contexto de mensagem enviada
+    updateSendMessage(receiver, message) {
+        this.sendMessageComp = `${message}${receiver}`
+        this.lastActivity = Date.now()
+    }
+    
+    // Verificar se mensagem já foi enviada (evitar duplicatas)
+    isDuplicateMessage(receiver, message) {
+        const messageKey = `${message}${receiver}`
+        return this.sendMessageComp === messageKey
+    }
+    
+    // Atualizar contexto de mensagem recebida
+    updateReceived(messageId) {
+        this.received = messageId
+        this.lastActivity = Date.now()
+    }
+    
+    // Verificar se mensagem já foi processada
+    isDuplicateReceived(messageId) {
+        return this.received === messageId
+    }
+    
+    // Atualizar contexto de mídia recebida
+    updateReceivedMidia(mediaId) {
+        this.receivedMidia = mediaId
+        this.lastActivity = Date.now()
+    }
+    
+    // Verificar se mídia já foi processada
+    isDuplicateMidia(mediaId) {
+        return this.receivedMidia === mediaId
+    }
+    
+    // Limpar contexto antigo (garbage collection)
+    isExpired(timeoutMs = 300000) { // 5 minutos
+        return Date.now() - this.lastActivity > timeoutMs
+    }
+    
+    // Reset do contexto
+    reset() {
+        this.sendMessageComp = ''
+        this.received = ''
+        this.receivedMidia = ''
+        this.lastActivity = Date.now()
+    }
+}
+
+// Gerenciador global de contextos por sessão
+class ContextManager {
+    constructor() {
+        this.contexts = new Map()
+        this.cleanupInterval = setInterval(() => this.cleanup(), 60000) // Cleanup a cada minuto
+    }
+    
+    // Obter ou criar contexto para sessão
+    getContext(sessionId) {
+        if (!this.contexts.has(sessionId)) {
+            this.contexts.set(sessionId, new MessageContext(sessionId))
+        }
+        return this.contexts.get(sessionId)
+    }
+    
+    // Limpar contextos expirados
+    cleanup() {
+        const expiredSessions = []
+        this.contexts.forEach((context, sessionId) => {
+            if (context.isExpired()) {
+                expiredSessions.push(sessionId)
+            }
+        })
+        
+        expiredSessions.forEach(sessionId => {
+            this.contexts.delete(sessionId)
+            console.log(`[ContextManager] Contexto expirado removido para sessão: ${sessionId}`)
+        })
+        
+        if (expiredSessions.length > 0) {
+            console.log(`[ContextManager] Cleanup executado: ${expiredSessions.length} contextos removidos`)
+        }
+    }
+    
+    // Remover contexto específico
+    removeContext(sessionId) {
+        const removed = this.contexts.delete(sessionId)
+        if (removed) {
+            console.log(`[ContextManager] Contexto removido para sessão: ${sessionId}`)
+        }
+        return removed
+    }
+    
+    // Obter estatísticas
+    getStats() {
+        return {
+            activeSessions: this.contexts.size,
+            sessions: Array.from(this.contexts.keys())
+        }
+    }
+    
+    // Destruir gerenciador
+    destroy() {
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval)
+        }
+        this.contexts.clear()
+    }
+}
+
+// Instância global do gerenciador de contextos
+const contextManager = new ContextManager()
+
+// Função para obter estatísticas dos contextos
+const getContextStats = () => {
+    return contextManager.getStats()
+}
+
+// Função para limpar contexto de uma sessão específica
+const clearSessionContext = (sessionId) => {
+    return contextManager.removeContext(sessionId)
+}
+
+// Função para resetar um contexto específico
+const resetSessionContext = (sessionId) => {
+    const context = contextManager.getContext(sessionId)
+    context.reset()
+    console.log(`[ContextManager] Contexto resetado para sessão: ${sessionId}`)
+}
+
+// Cleanup graceful do sistema de contextos
+const cleanupContextManager = () => {
+    console.log('[ContextManager] Executando cleanup graceful...')
+    contextManager.destroy()
+    console.log('[ContextManager] Cleanup concluído')
+}
+
 const alertSessionBan = async (interation_id) => {
   socketClient.on("connect", () => {
       socketClient.emit('alertSessionBan', interation_id, (datas) => {})
@@ -32,7 +177,6 @@ const getList = (req, res) => {
     
 }
 
-var sendMessageComp = ''
 const send = async (data) => {
     const session = getSession(data.session)
     const receiver = formatPhone(data.receiver)
@@ -40,8 +184,11 @@ const send = async (data) => {
     const b = bot ? bot : 0
     const messages = message
     console.log('Envio mensagem final', data.receiver)
-    //console.log('RETORNO DE MESSAGES INICIAL ', messages)
-      try {
+    
+    // Obter contexto da sessão
+    const context = contextManager.getContext(data.session)
+    
+    try {
         const exists = await isExists(session, receiver)
         if (!exists) {
             const data = {}
@@ -52,10 +199,14 @@ const send = async (data) => {
             })  
             return
         }
-        const sendMessageOri = `${message}${receiver}`
-        if(sendMessageComp != sendMessageOri){
+        
+        // Verificar se mensagem já foi enviada usando contexto
+        if(!context.isDuplicateMessage(receiver, message)){
             const datas = sendMessage(session, receiver, message, 2000)
             .then(async function (resp) {
+                  // Atualizar contexto após envio bem-sucedido
+                  context.updateSendMessage(receiver, message)
+                  
                   await updateSessionCount(data.session)
                   await updatecheckedMessageSend(data.id)
                   if(data.messageid){
@@ -78,8 +229,9 @@ const send = async (data) => {
             .catch(function(error){
             console.log(error)      
             })
+        } else {
+            console.log(`[MessageContext] Mensagem duplicada ignorada para sessão ${data.session}: ${receiver}`)
         }
-        sendMessageComp = sendMessageOri
     } catch (err) {
         console.log(err, 500, false, 'Failed to send the message.')
     }
@@ -140,19 +292,25 @@ const sendsContact = async (data) => {
     const datas = sendContact(session, receiver, phone, phone2, organization, fullName)
 }
 
-var received = ''
 const sendMsgChat = async (data) => {
     try {
       let session  
       const sessionsExists = await validate(data.session) 
+      let sessionId = data.session
+      
       if(sessionsExists != 404){
         session = getSession(data.session)
       }else{
         const xpto = await validateSession('anycall', 1)
         await alterSessionSendChats(xpto, data.id)
         session = getSession(xpto)
+        sessionId = xpto
         await alertSessionBan(data.id)
-      }  
+      }
+      
+      // Obter contexto da sessão
+      const context = contextManager.getContext(sessionId)
+      
       const receiver = formatPhone(data.receiver)
       const { message } = data
       const messages = message
@@ -169,18 +327,24 @@ const sendMsgChat = async (data) => {
           })  
           return
       }
-      if(received != messages.text){
+      
+      // Verificar se mensagem já foi processada usando contexto
+      if(!context.isDuplicateReceived(messages.text)){
             const datas = sendMessage(session, receiver, message, 0)
             .then(async function (resp) {
-                    await updateSessionCount(session)
+                    // Atualizar contexto após processamento bem-sucedido
+                    context.updateReceived(messages.text)
+                    
+                    await updateSessionCount(sessionId)
                     let msgs =  { receiver, messages: messages.text, statusSend: true, stateMsg: 'The message has been successfully sent.' } 
                 Msgs.create(msgs).then(data => { })   
             })
             .catch(function(error){
                 console.error(error)      
             })
+       } else {
+           console.log(`[MessageContext] Mensagem recebida duplicada ignorada para sessão ${sessionId}: ${messages.text}`)
        }
-      received = messages.text
   } catch (err) {
       console.log(err, 500, false, 'Failed to send the message.')
   }
@@ -220,13 +384,12 @@ const sendLink = async (data) => {
     }
 }
 
-var receivedMidia = ''
 const sendMidia = async (datas) => {
   try {
         console.log(datas)
         const receiver = formatPhone(datas.receiver)
         const { type, caption, urlImage, fileName } = datas
-        let message, session  
+        let message, session, sessionId = datas.session  
         const sessionsExists = await validate(datas.session) 
         if(sessionsExists){
             session = getSession(datas.session)
@@ -234,8 +397,12 @@ const sendMidia = async (datas) => {
             const xpto = await validateSession('anycall', 1)
             await alterSessionSendChats(xpto, datas.id)
             session = getSession(xpto)
+            sessionId = xpto
             await alertSessionBan(datas.id)
-        }  
+        }
+        
+        // Obter contexto da sessão
+        const context = contextManager.getContext(sessionId)  
         const existsIf = await isExists(session, receiver)
         if (!existsIf) {
                   const data = {}
@@ -273,12 +440,17 @@ const sendMidia = async (datas) => {
                                   fileName:    `boleto_${new Date().getTime()}.pdf`
                           }
                       }
-          let x = `${receiver}${fileName}`            
-          if(receivedMidia != x){                      
+          const mediaId = `${receiver}${fileName}`
+          
+          // Verificar se mídia já foi processada usando contexto
+          if(!context.isDuplicateMidia(mediaId)){                      
           const d = sendMessageMidia(session, receiver, message, 0)
             .then(async function (resp) {
+                    // Atualizar contexto após processamento bem-sucedido
+                    context.updateReceivedMidia(mediaId)
+                    
                     console.log(200, true, resp, 'The message has been successfully sent.')
-                    await updateSessionCount(datas.session)
+                    await updateSessionCount(sessionId)
                     const condition = { where :{id: datas.id } } 
                     const options = { multi: true }
                     let values = { messageid: datas.messageid }
@@ -289,8 +461,9 @@ const sendMidia = async (datas) => {
                     Msgs.create(msgs).then(data => { })   
             })
             .catch(function(error){ console.log(error) })
+          } else {
+              console.log(`[MessageContext] Mídia duplicada ignorada para sessão ${sessionId}: ${mediaId}`)
           }
-          receivedMidia = x
    } catch (err) {
       console.log(err, 500, false, 'Failed to send the message.')
    }
@@ -497,6 +670,8 @@ const sendList= async (req, res) => {
 
 
 export { getList, send, sendBulk, getFindId, getFindStatus, getFindPeriod, sendMidia, sendButtons, sendLink, sendList, 
-    sendMessageMidia , sendsContact, sendNewWithContact, sendMsgChat }
+    sendMessageMidia , sendsContact, sendNewWithContact, sendMsgChat, 
+    // Funções do sistema de contexto
+    getContextStats, clearSessionContext, resetSessionContext, cleanupContextManager }
 
 
