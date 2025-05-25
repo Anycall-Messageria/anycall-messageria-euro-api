@@ -212,8 +212,9 @@ async function sendOutContext(rec) {
     const recivemsg = await Sendmessage.findOne({ where: { receiver: remotejid , type:2, messageid: null, checked: 0 }, order: [ [ 'id', 'DESC' ]], })
     console.log(recivemsg)
     if(recivemsg){
+       // Otimização: Buscar campanha primeiro, depois queue
        const find = await Campaing.findOne({where: {id: recivemsg.id_campaing}})
-       const queue = await Queues.findOne({where: { identificador: find.identificador }})
+       const queue = find ? await Queues.findOne({where: { identificador: find.identificador }}) : null
        const findWord = findString(queue.nomefila,'Cobrança')  
        if(findWord == false){
         const findWord2 = findString(queue.nomefila,'Antecipe') 

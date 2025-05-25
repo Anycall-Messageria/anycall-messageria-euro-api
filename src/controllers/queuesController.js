@@ -1032,14 +1032,17 @@ const sending = async (ids, id_send) => {
     let var1 = '' , var2 = '', var3 = '', var4 = '', var5 = '', var6 = '', var7 = '', var8 = '', var9 = ''
     let _id = 0
     const arr = []
+    // Otimização: Buscar fila e campanha em paralelo quando possível
     const filas = await Queue.findOne({ where: { 'identificador': ids, 'status': 0 } })
+    
+    if (!filas || filas.status > 0 || filas.banremove == 1) {
+      return
+    }
+    
     const identificador = filas.identificador
     const queueName = filas.nomefila
     console.log('Filas', identificador, queueName)
 
-    if (filas.status > 0 || filas.banremove == 1) {
-      return
-    }
     const result = await Campaing.findOne({ where: { 'id': id_send, 'identificador': filas.identificador, 'status': 0 }, order: [['id', 'ASC']] })
   
     idFila = filas.id
@@ -1170,8 +1173,11 @@ const sending = async (ids, id_send) => {
             status: 200,
             receiver: receiver
           }
-          let save = await ControlQueues.create(objs)
-          const e = await Queue.findOne({ where: { id: idFila } });
+          // Otimização: Executar criação e busca em paralelo
+          const [save, e] = await Promise.all([
+            ControlQueues.create(objs),
+            Queue.findOne({ where: { id: idFila } })
+          ])
           let cont = parseInt(e.entregues) + 1
           let tot = parseInt(e.falhas) + cont
           let carga = parseInt(e.registros)

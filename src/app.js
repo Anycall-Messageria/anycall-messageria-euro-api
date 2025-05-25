@@ -15,6 +15,7 @@ import passports from '../src/auth/auth.js'
 import { monitoringSession  } from '../src/session/index.js'
 import { listRestart, listRestartPause , listStart, listMonitor} from '../src/controllers/queuesController.js'
 import PusherEvents from './lib/pusher-events.js'
+import Queue from './queues/queues.js'
 import { join } from 'path'
 
 dotenv.config({ path: __dirname + '/.env'})
@@ -96,6 +97,11 @@ const port = parseInt(process.env.PORT ?? 8007)
 const listenerCallback = async () => {
     let i = await init() 
     await listRestart()
+    
+    // Inicializar processamento de filas
+    Queue.process()
+    console.log('🔄 Queue processors iniciados')
+    
     setInterval(() => { listRestartPause() } , 180000) 
     setInterval(() => { listMonitor() } , 180000) 
     //setInterval(() => { listStart() }, 60000)

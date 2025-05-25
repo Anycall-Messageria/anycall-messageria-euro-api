@@ -15,22 +15,38 @@ const atributteCampaing = async (remotejid, sessions) => {
     const session = parseInt(sessions)
     console.log('remotejid, sessions jid', remotejid, sessions, jid)
     let queues, agent, queueId
-     const camp = await Campaing.findOne({ where: { number: jid , session: session, status: 200}, order: [ [ 'id', 'DESC' ]] })
+    
+    // Buscar campanha primeiro
+    const camp = await Campaing.findOne({ 
+      where: { number: jid, session: session, status: 200}, 
+      order: [ [ 'id', 'DESC' ]] 
+    })
+    
     if(camp){
       console.log('Campanha', camp.var9)
-      const queue = await Queues.findOne({ where:{'identificador': camp.identificador}})
-      const services = await Servicequeues.findOne({where: {queue: queue.product}})
-      queueId = queue.id
-      const genericUser = JSON.stringify(["5"])
-      queues = services.userId ? services.userId : genericUser
-      agent = camp.var9 ? parseInt(camp.var9) : await randomAgenteInteration(queues)
-    }else{
+      
+      // Otimização: Uma única query para buscar queue, depois buscar services
+      const queue = await Queues.findOne({ where: {'identificador': camp.identificador}})
+      const services = queue ? await Servicequeues.findOne({where: {queue: queue.product}}) : null
+      
+      if (queue) {
+        queueId = queue.id
+        const genericUser = JSON.stringify(["5"])
+        queues = services?.userId ? services.userId : genericUser
+        agent = camp.var9 ? parseInt(camp.var9) : await randomAgenteInteration(queues)
+      } else {
+        queueId = 1
+        agent = 5
+      }
+    } else {
       queueId = 1
       agent = 5
     }
     return {id: queueId, agent: agent}
   } catch (error) {
-    console.error(error)
+    console.error('[atributteCampaing] Erro:', error)
+    // Fallback seguro
+    return {id: 1, agent: 5}
   }
 }
 
@@ -42,7 +58,7 @@ const getInteration = async (datas) => {
       return
   }
   const saveContact = {name: pushname, verifiedName: pushname, profileUrl: urlProfile, remotejid  }
-  findInteration(remotejid, session).then(function(resp){ 
+  findInteration(remotejid, session).then(async function(resp){ 
     let push = {remotejid, idmessage, messagerecive, pushname, fromme, session, id_interation: resp, urlProfile}    
     if(resp){
       console.log('Localizou')
@@ -51,21 +67,37 @@ const getInteration = async (datas) => {
       recordMessage(push, status).then(function(r){})
     }else{
       console.log('Nao Localizou', session)
-      let findSessionId = Session.findOne({ where: { number: parseInt(session) } }).then( 
-        async function(s){ 
-        if(s){
-          const idCamp = await atributteCampaing(remotejid, session)
-          let agent = idCamp.agent ? idCamp.agent : 5
-          const save = { jid: remotejid, firstconversation:messagetimestamp, 
-            fromme, session, urlProfile, session_id: s.id, users: agent, id_campaing: idCamp.id}
-          let saveInteretion = createInteration(save).then(function(r){
-            let push = {remotejid, idmessage, messagerecive, pushname, fromme, session, id_interation: r, urlProfile}    
-            recordMessage(push, status).then(function(r){})
-          })
-        }else{
-          return
+      
+      // Otimização: Executar busca de sessão e campanha em paralelo
+      const [sessionData, campaignData] = await Promise.all([
+        Session.findOne({ where: { number: parseInt(session) } }),
+        atributteCampaing(remotejid, session)
+      ])
+      
+      if(sessionData){
+        let agent = campaignData.agent ? campaignData.agent : 5
+        const save = { 
+          jid: remotejid, 
+          firstconversation: messagetimestamp, 
+          fromme, 
+          session, 
+          urlProfile, 
+          session_id: sessionData.id, 
+          users: agent, 
+          id_campaing: campaignData.id
         }
-      })
+        
+        try {
+          const interactionId = await createInteration(save)
+          let push = {remotejid, idmessage, messagerecive, pushname, fromme, session, id_interation: interactionId, urlProfile}    
+          await recordMessage(push, status)
+        } catch (error) {
+          console.error('[getInteration] Erro ao criar interação:', error)
+        }
+      } else {
+        console.log('[getInteration] Sessão não encontrada:', session)
+        return
+      }
     }
   })
   findContacts(remotejid, saveContact).then(function(r){})

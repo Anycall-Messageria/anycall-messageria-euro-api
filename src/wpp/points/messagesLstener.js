@@ -10,10 +10,46 @@ import { getInteration } from '../../store/interation/index.js'
 import { justNumbers } from '../../utils/util.js'
 import { selectdChoices } from "../../sock/wpp/index.js";
 import  * as ioClient  from 'socket.io-client'
+import Queue from '../../queues/queues.js'
+
 const socketClient = ioClient.io("https://euro17.anycall-messageria.com.br");
 
 
 const writeFileAsync = promisify(writeFile);
+
+// Função para processar mídia de forma assíncrona
+const processMediaAsync = async (msg, session, msgContact) => {
+  try {
+    const sessionId = session.id || 'unknown';
+    
+    console.log(`[MessagesListener] Adicionando mídia à fila para sessão ${sessionId}`);
+    
+    // Adicionar job à fila de processamento de mídia
+    const job = await Queue.add('ProcessMedia', {
+      msg: msg,
+      sessionId: sessionId,
+      msgContact: msgContact,
+      timestamp: Date.now()
+    });
+    
+    console.log(`[MessagesListener] Job de mídia criado: ${job.id} para sessão ${sessionId}`);
+    
+    // Resposta imediata para não bloquear a thread
+    return {
+      jobId: job.id,
+      status: 'queued',
+      message: 'Mídia adicionada à fila de processamento'
+    };
+    
+  } catch (error) {
+    console.error('[processMediaAsync] Erro ao adicionar mídia à fila:', error);
+    Sentry.captureException(error);
+    
+    // Fallback: processar de forma síncrona em caso de erro na fila
+    console.log('[processMediaAsync] Fallback: processando mídia de forma síncrona');
+    return await verifyMediaMessage(msg, session);
+  }
+};
 
 const getTypeMessage = (msg) => {
   //console.log('getTypeMessage', msg.message)
@@ -462,7 +498,8 @@ const handleMessage = async ( msg,  session )=> {
     const contact = await verifyContact(msgContact, session);
 
     if (hasMedia) {
-        msgs =  await verifyMediaMessage(msg, session);
+        // Processar mídia de forma assíncrona via queue
+        await processMediaAsync(msg, session, msgContact);
     } else {
         msgs = await verifyMessage(msg, session);
     }
@@ -514,4 +551,4 @@ const wbotMessageListener = async (session, messageUpsert) => {
 };
 
 
-export { wbotMessageListener, handleMessage };
+export { wbotMessageListener, handleMessage, getContactMessage, verifyContact };
