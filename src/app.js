@@ -9,15 +9,12 @@ import { init, cleanup, trocar } from '../src/wpp/whatsapp.js'
 import cookieParser from 'cookie-parser'
 import loggers from 'morgan'
 import passport from 'passport'
-import session from 'express-session'
-import authRoute from './routes/authRoute.js'
 //import authTokenRoute from './routes/authJwtRoute.js'
 import cors from 'cors'
 import passports from '../src/auth/auth.js'
 import { monitoringSession  } from '../src/session/index.js'
 import { listRestart, listRestartPause , listStart, listMonitor} from '../src/controllers/queuesController.js'
 import { join } from 'path'
-import flash from 'connect-flash'
 
 dotenv.config({ path: __dirname + '/.env'})
 
@@ -30,7 +27,42 @@ dbPost.authenticate().then(() => {
 })
 
 
-app.use(cors())
+app.use((req, res, next) => {
+  // Headers de segurança básicos
+  res.removeHeader('X-Powered-By')
+  res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('X-XSS-Protection', '1; mode=block')
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  next()
+})
+
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
+  'http://localhost:3000',
+  'http://localhost:8045',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:8045'
+]
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Permite requests sem origin (mobile apps, etc.)
+    if (!origin) return callback(null, true)
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true)
+    } else {
+      callback(new Error('Não permitido pelo CORS'))
+    }
+  },
+  credentials: true,
+  optionsSuccessStatus: 200,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}))
+
+
 app.use(express.json())
 app.use(cookieParser());
 app.use(express.urlencoded({  extended: true }))
@@ -39,38 +71,9 @@ app.use(express.static((__dirname + '/assets')))
 app.use(express.static(__dirname + '/node_modules'));
 
 
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Authorization, X-API-KEY, Origin, X-Requested-With, XMLHttpRequest, Content-Type, Accept, Access-Control-Allow-Request-Method');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
-  res.header('Allow', 'GET, POST, OPTIONS, PUT, DELETE');
-  res.header('Access-Control-Allow-Credentials', true);
-  next();
-});
-
-let maxTime = 36000000//Date.now() + (60 * 86400 * 1000)
-app.use(session({  
-  secret: process.env.SECRET_KEY,
-  resave: false,
-  saveUninitialized: false,
-  cookie: { secure:false, maxAge: maxTime }
-}))
-
 app.use(passport.initialize());
 app.use(passport.session());
-app.use(flash());
-
 app.use(loggers('dev'))
-
-const setViewsDir = join(__dirname, 'src/views')
-
-app.set('view engine', 'ejs');
-
-app.set('views', setViewsDir);
-app.use('/auth', authRoute)
-
-
-
 
 
 function authenticationMiddleware(req, res, next) {
@@ -103,6 +106,28 @@ if (host) {
 } else {
     server.listen(port, listenerCallback)
 }
+
+const gracefulShutdown = () => {
+    appLogger.info('Encerrando servidor gracefuly...')
+    SessionManager.cleanupActiveSessions()
+    server.close(() => {
+        appLogger.info('Servidor HTTP fechado.')
+        dbPost.close().then(() => 
+            appLogger.info('Conexão com DB Postgres fechada.')
+        ).catch(err => 
+            appLogger.error('Erro ao fechar DB:', err)
+        )
+        process.exit(0)
+    })
+
+    setTimeout(() => {
+        appLogger.error('Timeout no graceful shutdown. Forçando encerramento.')
+        process.exit(1)
+    }, 10000)
+}
+
+process.on('SIGTERM', gracefulShutdown)
+process.on('SIGINT', gracefulShutdown)
 
 //nodeCleanup(cleanup) 
 export default app

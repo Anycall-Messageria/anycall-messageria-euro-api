@@ -1,12 +1,11 @@
 import { rmSync, readdir } from 'fs'
 import makeWASocket, { DisconnectReason, useMultiFileAuthState, 
-    fetchLatestBaileysVersion, makeInMemoryStore, jidNormalizedUser, 
-    toNumber, Browsers  } from '@whiskeysockets/baileys'
+    fetchLatestBaileysVersion, makeInMemoryStore, } from '@whiskeysockets/baileys'
 import pino from 'pino'
 import __dirname from '../../dirname.js'
 import response from '../../response.js'
 import { join } from 'path'
-import { justNumbers, isNumber, formatPhone, formatGroup } from '../utils/util.js'
+import { justNumbers, formatPhone, formatGroup } from '../utils/util.js'
 import { toDataURL } from 'qrcode'
 import { io } from '../../server.js' 
 import { logger } from '../../logger.js'
@@ -19,6 +18,7 @@ import { updateMessageDB } from '../store/message/index.js'
 import { updateStateSession, getLogs, countdisconnected, findTotalDisconect, 
     findCreateSession, banSession } from '../session/index.js'
 import { wbotMessageListener } from '../wpp/points/messagesLstener.js'
+import { saveHistorySync } from '../service/historySync/index.js'
 
 
 const loggers = logger
@@ -84,7 +84,7 @@ async function createSession (id, res = null, user_comp=null) {
          browser: ["ANYCALL", "Chrome", "1.4.0"],
          connectTimoutMs: 60_000,
          //browser: Browsers.macOS('Desktop'),
-         //syncFullHistory: true
+         syncFullHistory: true
       }
      /**
      * @type {import('baileys').WASocket}
@@ -120,8 +120,8 @@ async function createSession (id, res = null, user_comp=null) {
 
     const set = async ({ messages, isLatest }) => {
         try {
-            console.log(messages)
-            logger.info({ messages: messages.length }, 'Synced messages');
+            //console.log(messages)
+            //logger.info({ messages: messages.length }, 'Synced messages');
         } catch (e) {
             logger.error(e, 'An error occured during messages set');
         }
@@ -145,9 +145,7 @@ async function createSession (id, res = null, user_comp=null) {
     const upsertContacts = async (contacts) => {
         try {
               console.log('upsertContacts ', contacts)    
-              contacts.map(async function(data){
-                    // upsertContactDB(sessionId, id, name, notify, verifiedName, imgUrl, status)
-                })
+              contacts.map(async function(data){ })
         } catch (e) {
             logger.error(e, 'An error occured during contacts upsert');
         }
@@ -161,22 +159,35 @@ async function createSession (id, res = null, user_comp=null) {
         }
     }
 
-    const setChat = async ({ chats, isLatest }) => {
+    const setChat = async (data) => {
         try {
-            console.log('setChat', chats)
+            const { chats, contacts, messages, syncType } = data
+            const historyData = {
+                chats,
+                contacts,
+                messages,
+                syncType,
+                timestamp: new Date()
+            }
+            
+            console.log(`Iniciando salvamento de histórico para sessão ${userSession}`)
+            console.log(`Dados a serem salvos: ${chats?.length || 0} chats, ${contacts?.length || 0} contatos, ${messages?.length || 0} mensagens`)
+            
+            // Salva os dados no banco
+            await saveHistorySync(historyData, userSession, user_comp)
+            
+            console.log(`Histórico salvo com sucesso para sessão ${userSession}`)
+            
         } catch (e) {
-            logger.error(e, 'An error occured during chats set');
+            console.log(e, 'An error occured during chats set');
         }
     }
 
     const upsertChat = async (chats) => {
         try {
-            //console.log('upsertChat ', chats)
-           /* chats.map(function (data) {
-                pushChatDb(data.id, data.conversationTimestamp, data.unreadCount)
-            })*/
+             //console.log('upsertChat', chats) 
         } catch (e) {
-            logger.error(e, 'An error occured during chats upsert')
+            console.log(e, 'An error occured during chats upsert')
         }
     }
 
@@ -184,7 +195,6 @@ async function createSession (id, res = null, user_comp=null) {
         for (const update of updates) {
             try {
                 const { id, conversationTimestamp, unreadCount } = update
-                //updateChatDb(id, conversationTimestamp, unreadCount)
             } catch (e) {
                 logger.error(e, 'An error occured during chat update');
             }
@@ -235,30 +245,19 @@ async function createSession (id, res = null, user_comp=null) {
                 await getLogs(openConnection, userSession, conn)
                 await getLogs(openLastDisconnect, userSession, last)
                 const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut 
-                //loggers.error(`${userSession}`)
                 console.log(`connection closed due to ${userSession}`, userSession, statusCode,  lastDisconnect.error, ', reconnecting ', shouldReconnect)
                 const ab = lastDisconnect.error.output.statusCode
                 const bc = lastDisconnect.error.output.payload.message
 
                 if(statusCode == 401 && bc ==  'Intentional Logout'){
                     setTimeout(
-                    async () => {
-                        let user_company = null
-                      //  await createSession(userSession, res, user_company)
-                      //  await sendCreateSession(userSession, statusCode)
-                      //  await findSessiomCreate(userSession,user_comp)
-                    },
-                  1000)
+                    async () => {let user_company = null},1000)
                   return
             }
 
 
                 if(statusCode == 408 || statusCode ==  428 || statusCode ==  503 || statusCode ==  515 || statusCode ==  516){
                    console.log(update.qr)
-                //    setTimeout( async () => {
-                //         const newQr = toDataURL(update.qr)
-                //         console.log(newQr)
-                //    }, 500)
                 }
                 
                 if(ab == 403 && bc == 'Connection Failure'){
@@ -287,8 +286,6 @@ async function createSession (id, res = null, user_comp=null) {
                 console.log('opened connection')
                 openConnection = `open connection ${userSession} ${dateFinal}: ${conn}`
                 openLastDisconnect = `open lastDisconnect ${userSession} ${dateFinal}: ${last}`
-                //loggers.error(openConnection)
-                //loggers.error(openLastDisconnect)
                 await getLogs(openConnection, userSession, connection)
                 await getLogs(openLastDisconnect, userSession, lastDisconnect)
                 retries.delete(userSession)
@@ -312,7 +309,6 @@ async function createSession (id, res = null, user_comp=null) {
             }
     })
     setInterval(() => { statusSession(userSession) }, 60000)
-    //statusSession(userSession)
 }
 
 const getSession = (sessionId) => {
