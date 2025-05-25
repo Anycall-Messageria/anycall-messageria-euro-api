@@ -49,25 +49,29 @@ class MessageRepository extends BaseRepository {
     }
 
     /**
-     * Buscar mensagem enviada por receiver e condições específicas
+     * Buscar mensagem enviada por receiver e condições específicas (com cache)
      * @param {string} receiver - Receptor da mensagem
      * @param {Object} additionalWhere - Condições adicionais
      * @returns {Promise<Object|null>} Mensagem encontrada
      */
     async findSendMessageByReceiver(receiver, additionalWhere = {}) {
         try {
-            const where = {
-                receiver: receiver,
-                type: 2,
-                messageid: null,
-                checked: 0,
-                ...additionalWhere
-            }
+            const cacheKey = this.getCacheKey(`sendmsg:${receiver}:${JSON.stringify(additionalWhere)}`)
             
-            return await this.sendMessageModel.findOne({
-                where,
-                order: [['id', 'DESC']]
-            })
+            return await this.findWithCache(cacheKey, async () => {
+                const where = {
+                    receiver: receiver,
+                    type: 2,
+                    messageid: null,
+                    checked: 0,
+                    ...additionalWhere
+                }
+                
+                return await this.sendMessageModel.findOne({
+                    where,
+                    order: [['id', 'DESC']]
+                })
+            }, 60) // Cache por 1 minuto (dados dinâmicos)
         } catch (error) {
             console.error('[MessageRepository] Erro ao buscar mensagem por receiver:', error)
             return null

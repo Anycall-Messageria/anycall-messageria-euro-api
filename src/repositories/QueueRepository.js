@@ -10,16 +10,21 @@ import Queue from '../model/queue.model.js'
 class QueueRepository extends BaseRepository {
     constructor() {
         super(Queue)
+        this.queueCacheTTL = 450 // 7.5 minutos para filas
     }
 
     /**
-     * Buscar fila por identificador
+     * Buscar fila por identificador (com cache)
      * @param {string} identificador - Identificador da fila
      * @returns {Promise<Object|null>} Fila encontrada
      */
     async findByIdentificador(identificador) {
         try {
-            return await this.findOne({ identificador: identificador })
+            const cacheKey = this.getCacheKey(`identificador:${identificador}`)
+            
+            return await this.findWithCache(cacheKey, async () => {
+                return await this.findOne({ identificador: identificador })
+            }, this.queueCacheTTL)
         } catch (error) {
             console.error('[QueueRepository] Erro ao buscar por identificador:', error)
             return null

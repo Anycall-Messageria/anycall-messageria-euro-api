@@ -1,6 +1,8 @@
 // BaseRepository - Classe base para todos os repositórios
 // Implementa operações CRUD básicas reutilizáveis
 
+import getCacheService from '../services/CacheService.js'
+
 /**
  * Repositório base que implementa operações CRUD comuns
  * Todos os repositórios específicos herdam desta classe
@@ -8,16 +10,22 @@
 class BaseRepository {
     constructor(model) {
         this.model = model
+        this.cache = getCacheService()
+        this.cachePrefix = model.name.toLowerCase()
+        this.defaultCacheTTL = 300 // 5 minutos
     }
 
     /**
-     * Criar novo registro
+     * Criar novo registro e invalidar cache
      * @param {Object} data - Dados para criação
      * @returns {Promise<Object>} Registro criado
      */
     async create(data) {
         try {
-            return await this.model.create(data)
+            const result = await this.model.create(data)
+            // Invalidar cache relacionado
+            await this.cache.invalidatePattern(`${this.cachePrefix}:*`)
+            return result
         } catch (error) {
             console.error(`[${this.constructor.name}] Erro ao criar:`, error)
             throw error
@@ -25,13 +33,17 @@ class BaseRepository {
     }
 
     /**
-     * Buscar por ID
+     * Buscar por ID com cache
      * @param {number} id - ID do registro
+     * @param {number} ttl - TTL do cache em segundos
      * @returns {Promise<Object|null>} Registro encontrado ou null
      */
-    async findById(id) {
+    async findById(id, ttl = this.defaultCacheTTL) {
         try {
-            return await this.model.findByPk(id)
+            const cacheKey = `${this.cachePrefix}:id:${id}`
+            return await this.cache.get(cacheKey, async () => {
+                return await this.model.findByPk(id)
+            }, ttl)
         } catch (error) {
             console.error(`[${this.constructor.name}] Erro ao buscar por ID:`, error)
             throw error
@@ -75,7 +87,7 @@ class BaseRepository {
     }
 
     /**
-     * Atualizar registro(s)
+     * Atualizar registro(s) e invalidar cache
      * @param {Object} values - Valores para atualização
      * @param {Object} where - Condições para atualização
      * @param {Object} options - Opções adicionais
@@ -83,10 +95,13 @@ class BaseRepository {
      */
     async update(values, where, options = {}) {
         try {
-            return await this.model.update(values, {
+            const result = await this.model.update(values, {
                 where,
                 ...options
             })
+            // Invalidar cache relacionado
+            await this.cache.invalidatePattern(`${this.cachePrefix}:*`)
+            return result
         } catch (error) {
             console.error(`[${this.constructor.name}] Erro ao atualizar:`, error)
             throw error
@@ -94,13 +109,16 @@ class BaseRepository {
     }
 
     /**
-     * Deletar registro(s)
+     * Deletar registro(s) e invalidar cache
      * @param {Object} where - Condições para deleção
      * @returns {Promise<number>} Quantidade de registros deletados
      */
     async delete(where) {
         try {
-            return await this.model.destroy({ where })
+            const result = await this.model.destroy({ where })
+            // Invalidar cache relacionado
+            await this.cache.invalidatePattern(`${this.cachePrefix}:*`)
+            return result
         } catch (error) {
             console.error(`[${this.constructor.name}] Erro ao deletar:`, error)
             throw error
@@ -178,6 +196,34 @@ class BaseRepository {
      */
     getModel() {
         return this.model
+    }
+
+    /**
+     * Criar cache key personalizada
+     * @param {string} suffix - Sufixo da chave
+     * @returns {string} Chave do cache
+     */
+    getCacheKey(suffix) {
+        return `${this.cachePrefix}:${suffix}`
+    }
+
+    /**
+     * Invalidar cache específico
+     * @param {string} key - Chave para invalidar
+     */
+    async invalidateCache(key) {
+        await this.cache.delete(key)
+    }
+
+    /**
+     * Busca com cache customizável
+     * @param {string} cacheKey - Chave do cache
+     * @param {Function} queryFn - Função de consulta ao banco
+     * @param {number} ttl - TTL em segundos
+     * @returns {Promise<any>} Resultado da consulta
+     */
+    async findWithCache(cacheKey, queryFn, ttl = this.defaultCacheTTL) {
+        return await this.cache.get(cacheKey, queryFn, ttl)
     }
 }
 

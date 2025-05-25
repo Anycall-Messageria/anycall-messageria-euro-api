@@ -17,6 +17,7 @@ import response from '../../response.js'
 import ocorrencesRoute from './ocorrencesRoute.js'
 import mobilesRoutes from './mobilesRoute.js'
 import numberOperatorRoutes from './numberOperatorRoute.js'
+import cacheRoute from './cacheRoute.js'
 
 
 const router = Router()
@@ -37,6 +38,7 @@ router.use('/campaings', campaingRoute)
 router.use('/ocorrences', ocorrencesRoute)
 router.use('/mobile', mobilesRoutes)
 router.use('/number-operator', numberOperatorRoutes)
+router.use('/cache', cacheRoute)
 
 
 router.all('*', (req, res) => {

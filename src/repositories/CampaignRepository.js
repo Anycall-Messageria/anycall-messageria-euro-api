@@ -10,6 +10,7 @@ import Campaing from '../model/campaings.model.js'
 class CampaignRepository extends BaseRepository {
     constructor() {
         super(Campaing)
+        this.campaignCacheTTL = 600 // 10 minutos para campanhas
     }
 
     /**
@@ -35,23 +36,27 @@ class CampaignRepository extends BaseRepository {
     }
 
     /**
-     * Buscar campanhas ativas por identificador
+     * Buscar campanhas ativas por identificador (com cache)
      * @param {string} identificador - Identificador da campanha
      * @param {Object} additionalWhere - Condições adicionais
      * @returns {Promise<Array>} Lista de campanhas
      */
     async findActiveByIdentificador(identificador, additionalWhere = {}) {
         try {
-            const where = {
-                identificador: identificador,
-                status: 0,
-                schedule: 0,
-                ...additionalWhere
-            }
+            const cacheKey = this.getCacheKey(`active:${identificador}:${JSON.stringify(additionalWhere)}`)
             
-            return await this.findAll(where, {
-                order: [['id', 'ASC']]
-            })
+            return await this.findWithCache(cacheKey, async () => {
+                const where = {
+                    identificador: identificador,
+                    status: 0,
+                    schedule: 0,
+                    ...additionalWhere
+                }
+                
+                return await this.findAll(where, {
+                    order: [['id', 'ASC']]
+                })
+            }, this.campaignCacheTTL)
         } catch (error) {
             console.error('[CampaignRepository] Erro ao buscar ativas por identificador:', error)
             return []
@@ -59,23 +64,27 @@ class CampaignRepository extends BaseRepository {
     }
 
     /**
-     * Buscar uma campanha ativa por identificador
+     * Buscar uma campanha ativa por identificador (com cache)
      * @param {string} identificador - Identificador da campanha
      * @param {Object} additionalWhere - Condições adicionais
      * @returns {Promise<Object|null>} Campanha encontrada
      */
     async findOneActiveByIdentificador(identificador, additionalWhere = {}) {
         try {
-            const where = {
-                identificador: identificador,
-                status: 0,
-                schedule: 0,
-                ...additionalWhere
-            }
+            const cacheKey = this.getCacheKey(`oneactive:${identificador}:${JSON.stringify(additionalWhere)}`)
             
-            return await this.findOne(where, {
-                order: [['id', 'ASC']]
-            })
+            return await this.findWithCache(cacheKey, async () => {
+                const where = {
+                    identificador: identificador,
+                    status: 0,
+                    schedule: 0,
+                    ...additionalWhere
+                }
+                
+                return await this.findOne(where, {
+                    order: [['id', 'ASC']]
+                })
+            }, this.campaignCacheTTL)
         } catch (error) {
             console.error('[CampaignRepository] Erro ao buscar uma ativa por identificador:', error)
             return null
@@ -140,17 +149,21 @@ class CampaignRepository extends BaseRepository {
     }
 
     /**
-     * Contar campanhas por identificador e status
+     * Contar campanhas por identificador e status (com cache)
      * @param {string} identificador - Identificador da campanha
      * @param {number} status - Status da campanha
      * @returns {Promise<number>} Quantidade de campanhas
      */
     async countByIdentificadorAndStatus(identificador, status) {
         try {
-            return await this.count({
-                identificador: identificador,
-                status: status
-            })
+            const cacheKey = this.getCacheKey(`count:${identificador}:${status}`)
+            
+            return await this.findWithCache(cacheKey, async () => {
+                return await this.count({
+                    identificador: identificador,
+                    status: status
+                })
+            }, this.campaignCacheTTL)
         } catch (error) {
             console.error('[CampaignRepository] Erro ao contar campanhas:', error)
             return 0
