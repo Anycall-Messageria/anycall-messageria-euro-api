@@ -14,9 +14,12 @@ import cors from 'cors'
 import passports from '../src/auth/auth.js'
 import { monitoringSession  } from '../src/session/index.js'
 import { listRestart, listRestartPause , listStart, listMonitor} from '../src/controllers/queuesController.js'
+import PusherEvents from './lib/pusher-events.js'
 import { join } from 'path'
 
 dotenv.config({ path: __dirname + '/.env'})
+
+const pusherEvents = new PusherEvents();
 
 passports(passport);
 
@@ -108,20 +111,19 @@ if (host) {
 }
 
 const gracefulShutdown = () => {
-    appLogger.info('Encerrando servidor gracefuly...')
-    SessionManager.cleanupActiveSessions()
+    console.info('Encerrando servidor gracefuly...')
     server.close(() => {
-        appLogger.info('Servidor HTTP fechado.')
+        console.info('Servidor HTTP fechado.')
         dbPost.close().then(() => 
-            appLogger.info('Conexão com DB Postgres fechada.')
+            console.info('Conexão com DB Postgres fechada.')
         ).catch(err => 
-            appLogger.error('Erro ao fechar DB:', err)
+            console.error('Erro ao fechar DB:', err)
         )
         process.exit(0)
     })
 
     setTimeout(() => {
-        appLogger.error('Timeout no graceful shutdown. Forçando encerramento.')
+        console.error('Timeout no graceful shutdown. Forçando encerramento.')
         process.exit(1)
     }, 10000)
 }
