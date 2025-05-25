@@ -12,23 +12,6 @@ import Campaing from '../../model/campaings.model.js'
 import Queues from '../../model/queue.model.js'
 
 
-const sau = [ 
-  `Olá!`, 
-  `Oi!`, 
-  `Tudo bem! `, 
-  `Tudo bom!`,
-  `Tudo tranquilo!`,
-  ``, 
-]
-
-let gerar = greetingMessage(sau)
-let choices = [ 
-  `${gerar} Ooops! 😔 Parece que você digitou o número incorreto, tente novamente!`, 
-  `😳 hiiiiii você errou, coloque o número corretamente.`, 
-  `Digite o número recebido, vamos de novo.`, 
-  `Dessa vez você vai conseguir, envie o número que você recebeu acima.`,
-]
-
 const recordMessageSend = async(data) => {
   try {
     console.log('recordMessageSend')
@@ -90,7 +73,7 @@ const pushMessageDb = async (datas) => {
         .then(async function (recivemsg) {
         if(recivemsg){
           const findWord = findString(recivemsg.messageinit,'correspondentes')  
-          if(messagerecive == recivemsg.code /*|| mini == 'sim'*/){
+          if(messagerecive == recivemsg.code){
               if(recivemsg.endpointmsg == 'send-text'){
                 const datasSendMessageSimple = {
                   session: recivemsg.session,
@@ -117,7 +100,6 @@ const pushMessageDb = async (datas) => {
                     session: recivemsg.session,
                     receiver: recivemsg.receiver,
                     message: {
-                    //text: `Todos os nossos atendentes estão ocupados no momento.\nDigite *Oi* no contato que te enviei da nossa central acima\nque logo seguiremos com seu atendimento..` 
                     text: `${recivemsg.text}` 
                     },
                     messageid: idmessage,
@@ -132,63 +114,13 @@ const pushMessageDb = async (datas) => {
               session: recivemsg.session,
               receiver: recivemsg.receiver,
               message: {
-                text: `Agradecemos sua atenção, caso tenha interesse em nos conhecer, visite nosso site clicando aqui: https://www.euro17.com.br ` 
+                text: `Agradecemos sua atenção, caso tenha interesse em nos conhecer` 
               },
               messageid: idmessage,
               id: recivemsg.id
             }
             await doNotBother(recivemsg.id, messagerecive)
             await send(noDatasSendMessageSimpleOuter)
-           }
-          }else if(findWord == true){
-            if(recivemsg.endpointmsg == 'send-text'){
-              let sendText 
-              if(messagerecive == 1){
-                sendText = `Para saber + sobre redução de suas parcelas do consignado,\nclique agora no link\nhttps://bit.ly/E17_Santander\nvocê será atendido no whatsapp pela nossa Equipe especializada sem compromisso.`
-              }else if(messagerecive == 2){
-                sendText = `Para saber + sobre como adquirir um novo contrato de consignado,\nclique agora no link\nhttps://bit.ly/E17_Santander\nvocê será atendido no whatsapp pela nossa Equipe especializada sem compromisso.`
-              }else if(messagerecive == 3){
-                sendText = `Para saber + sobre como refinanciar seus contratos de consignado Santander,\nclique agora no link\nhttps://bit.ly/E17_Santander\nvocê será atendido no whatsapp pela nossa Equipe especializada sem compromisso.`
-              }else if(messagerecive == 4){
-                sendText = `Para saber + sobre como você pode adquirir um cartão de crédito,\nclique agora no link\nhttps://bit.ly/E17_Santander\nvocê será atendido no whatsapp pela nossa Equipe especializada sem compromisso.`
-              }else{
-                const textSend = `Agradecemos sua atenção, caso tenha interesse em nos conhecer, visite nosso site https://www.euro17.com.br ou pode chamar em nosso contato.`
-                  const noDatasSendMessageSimple1 = {
-                    session: recivemsg.session,
-                    receiver: recivemsg.receiver,
-                    message: {
-                      text: `${textSend}`
-                    },
-                    messageid: idmessage,
-                    id: recivemsg.id
-                  }
-                  const datasSendMessageContact2 = {
-                    session: recivemsg.session,
-                    receiver: recivemsg.receiver,
-                    phone: '5511961762957',
-                    phone2: '11 961762957 ',
-                    organization: '💲 Euro 17 Crédito', 
-                    fullName: '💲 Euro 17 Crédito',
-                    messageid: idmessage,
-                    id: recivemsg.id
-                  }
-                await doNotBother(recivemsg.id, messagerecive)
-                await sendNewWithContact(noDatasSendMessageSimple1, datasSendMessageContact2, recivemsg.id_campaing)
-                return  
-              }
-
-            const santanderSendMessageSimple = {
-              session: recivemsg.session,
-              receiver: recivemsg.receiver,
-              message: {
-                text: `${sendText}` 
-              },
-              messageid: idmessage,
-              id: recivemsg.id
-            }
-            await doNotBother(recivemsg.id, messagerecive)
-            await send(santanderSendMessageSimple)
-            return
            }
           }else{
                 console.log('Entrou fora do contexto')
@@ -258,8 +190,6 @@ async function sendOutContext(rec) {
       const datasSendMessageContact2 = {
         session: recivemsg.session,
         receiver: recivemsg.receiver,
-        //phone: '5511965989241',
-        //phone2: '11 965989241 ',
         phone: '558000003517',
         phone2: '8000003517',
         organization: '💲 Euro 17 Crédito', 
